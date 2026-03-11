@@ -1,0 +1,21 @@
+{
+  "name": "windows-folder-organizer",
+  "version": "1.0.0",
+  "description": "A lightweight Windows GUI tool that automatically sorts files in any folder into categorized subfolders — no installation required, just double-click and go.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Khalid-MahmouD/windows-folder-organizer.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Khalid-MahmouD/windows-folder-organizer/issues"
+  },
+  "homepage": "https://github.com/Khalid-MahmouD/windows-folder-organizer#readme"
+}

@@ -1,20 +1,16 @@
+<# :
 @echo off
 setlocal
-
 set "TMPPS=%TEMP%\FolderOrganizerV2_%RANDOM%.ps1"
-
-powershell -ExecutionPolicy Bypass -Command ^
-  "$content = Get-Content '%~f0' -Raw; $start = $content.IndexOf('##PSSTART##') + 11; $ps = $content.Substring($start).TrimStart([char]13,[char]10); [System.IO.File]::WriteAllText('%TMPPS%', $ps, [System.Text.Encoding]::UTF8)"
-
-powershell -ExecutionPolicy Bypass -NoProfile -File "%TMPPS%"
+powershell -ExecutionPolicy Bypass -NoProfile -Command "Get-Content '%~f0' | Select-Object -Skip 8 | Out-File -Encoding UTF8 '%TMPPS%'"
+powershell -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File "%TMPPS%"
 del "%TMPPS%" 2>nul
 exit /b
-
-##PSSTART##
+#>
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-# ── Folder map ────────────────────────────────────────────────
+# ------ Folder map ------------------------------------------------------------------------------------------------------------------------------------------------
 $folderMap = @{
     "Documents\PDFs"        = @(".pdf")
     "Documents\Word"        = @(".doc",".docx")
@@ -36,7 +32,7 @@ foreach ($folder in $folderMap.Keys) {
     foreach ($ext in $folderMap[$folder]) { $extMap[$ext] = $folder }
 }
 
-# ── Color Palette ─────────────────────────────────────────────
+# ------ Color Palette ---------------------------------------------------------------------------------------------------------------------------------------
 $clrBg        = [System.Drawing.Color]::FromArgb(10, 10, 15)
 $clrSurface   = [System.Drawing.Color]::FromArgb(18, 18, 26)
 $clrCard      = [System.Drawing.Color]::FromArgb(26, 26, 38)
@@ -48,7 +44,7 @@ $clrText      = [System.Drawing.Color]::FromArgb(230, 230, 245)
 $clrMuted     = [System.Drawing.Color]::FromArgb(120, 120, 150)
 $clrLogBg     = [System.Drawing.Color]::FromArgb(13, 13, 20)
 
-# ── Fonts ──────────────────────────────────────────────────────
+# ------ Fonts ------------------------------------------------------------------------------------------------------------------------------------------------------------------
 $fontTitle    = New-Object System.Drawing.Font("Segoe UI", 18, [System.Drawing.FontStyle]::Bold)
 $fontSub      = New-Object System.Drawing.Font("Segoe UI", 9)
 $fontLabel    = New-Object System.Drawing.Font("Segoe UI Semibold", 9, [System.Drawing.FontStyle]::Bold)
@@ -59,7 +55,7 @@ $fontLogFall  = New-Object System.Drawing.Font("Consolas", 9)
 $fontSmall    = New-Object System.Drawing.Font("Segoe UI", 8)
 $fontCounter  = New-Object System.Drawing.Font("Segoe UI", 22, [System.Drawing.FontStyle]::Bold)
 
-# ── Functions ──────────────────────────────────────────────────
+# ------ Functions ------------------------------------------------------------------------------------------------------------------------------------------------------
 function MakeStatBox($parent, $x, $value, $label) {
     $pnl = New-Object System.Windows.Forms.Panel
     $pnl.Location = New-Object System.Drawing.Point($x, 0)
@@ -161,7 +157,7 @@ function Invoke-OrganizeFolder {
         $pbProgress.Maximum = $total
         $modeTag = if ($isPreview) { "[PREVIEW] " } else { "" }
         LogLine "${modeTag}Organizing: $targetPath" $clrAccent
-        LogLine ("─" * 60) $clrBorder
+        LogLine ("---" * 60) $clrBorder
         LogLine "" $clrText
 
         foreach ($file in $files) {
@@ -202,7 +198,7 @@ function Invoke-OrganizeFolder {
         $script:lblStatCats.Text  = $catsUsed.Count.ToString()
 
         LogLine "" $clrText
-        LogLine ("─" * 60) $clrBorder
+        LogLine ("---" * 60) $clrBorder
         $doneMsg = if ($isPreview) { "Preview complete. $moved file(s) would be moved." } else { "Done! $moved file(s) organized." }
         LogLine "  $doneMsg" $clrSuccess
         $lblStatus.Text = $doneMsg
@@ -223,7 +219,7 @@ function Invoke-UndoOrganization {
     
     $rtbLog.Clear()
     LogLine "Undoing last organize operation..." $clrAccent
-    LogLine ("─" * 60) $clrBorder
+    LogLine ("---" * 60) $clrBorder
     LogLine "" $clrText
     
     $lblStatus.Text = "Undoing moves..."
@@ -271,7 +267,7 @@ function Invoke-UndoOrganization {
     $global:undoLog = @()
     
     LogLine "" $clrText
-    LogLine ("─" * 60) $clrBorder
+    LogLine ("---" * 60) $clrBorder
     LogLine "  Undo complete. $restored file(s) restored." $clrSuccess
     $lblStatus.Text = "Undo complete. $restored file(s) restored."
     
@@ -284,7 +280,7 @@ function Invoke-UndoOrganization {
 }
 
 
-# ── Main Form ──────────────────────────────────────────────────
+# ------ Main Form ------------------------------------------------------------------------------------------------------------------------------------------------------
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "Folder Organizer"
 $form.Size = New-Object System.Drawing.Size(680, 700)
@@ -296,7 +292,7 @@ $form.MaximizeBox = $true
 $form.Font = $fontInput
 $form.Icon = [System.Drawing.SystemIcons]::Application
 
-# ── Header Panel ───────────────────────────────────────────────
+# ------ Header Panel ---------------------------------------------------------------------------------------------------------------------------------------------
 $pnlHeader = New-Object System.Windows.Forms.Panel
 $pnlHeader.Dock = "Top"
 $pnlHeader.Height = 80
@@ -338,14 +334,14 @@ $lblVersion.Size = New-Object System.Drawing.Size(40, 16)
 $lblVersion.BackColor = [System.Drawing.Color]::Transparent
 $pnlHeader.Controls.Add($lblVersion)
 
-# ── Content Panel (scrollable area) ───────────────────────────
+# ------ Content Panel (scrollable area) ---------------------------------------------------------------------------------
 $pnlContent = New-Object System.Windows.Forms.Panel
 $pnlContent.Dock = "Fill"
 $pnlContent.BackColor = $clrBg
 $pnlContent.AutoScroll = $false
 $form.Controls.Add($pnlContent)
 
-# ── Folder Path Section ────────────────────────────────────────
+# ------ Folder Path Section ------------------------------------------------------------------------------------------------------------------------
 $lblPathHeader = New-Object System.Windows.Forms.Label
 $lblPathHeader.Text = "TARGET FOLDER"
 $lblPathHeader.Font = New-Object System.Drawing.Font("Segoe UI", 7.5, [System.Drawing.FontStyle]::Bold)
@@ -420,7 +416,7 @@ $btnBrowse.Add_Click({
     }
 })
 
-# ── Options Row ───────────────────────────────────────────────
+# ------ Options Row ---------------------------------------------------------------------------------------------------------------------------------------------
 $lblOptionsHeader = New-Object System.Windows.Forms.Label
 $lblOptionsHeader.Text = "OPTIONS"
 $lblOptionsHeader.Font = New-Object System.Drawing.Font("Segoe UI", 7.5, [System.Drawing.FontStyle]::Bold)
@@ -467,7 +463,7 @@ $chkPreview.FlatAppearance.BorderColor = $clrBorder
 $chkPreview.Cursor = [System.Windows.Forms.Cursors]::Hand
 $pnlOptions.Controls.Add($chkPreview)
 
-# ── Stats Row ─────────────────────────────────────────────────
+# ------ Stats Row ---------------------------------------------------------------------------------------------------------------------------------------------------
 $pnlStats = New-Object System.Windows.Forms.Panel
 $pnlStats.Location = New-Object System.Drawing.Point(24, 182)
 $pnlStats.Size = New-Object System.Drawing.Size(632, 68)
@@ -485,7 +481,7 @@ $script:lblStatMoved.ForeColor  = $clrSuccess
 $script:lblStatSkip.ForeColor   = [System.Drawing.Color]::FromArgb(251, 191, 36)
 $script:lblStatCats.ForeColor   = $clrAccent2
 
-# ── Log Section ───────────────────────────────────────────────
+# ------ Log Section ---------------------------------------------------------------------------------------------------------------------------------------------
 $lblLogHeader = New-Object System.Windows.Forms.Label
 $lblLogHeader.Text = "ACTIVITY LOG"
 $lblLogHeader.Font = New-Object System.Drawing.Font("Segoe UI", 7.5, [System.Drawing.FontStyle]::Bold)
@@ -507,7 +503,7 @@ $rtbLog.ScrollBars = "None"
 $rtbLog.Anchor = "Top, Bottom, Left, Right"
 $pnlContent.Controls.Add($rtbLog)
 
-# ── Bottom Bar ────────────────────────────────────────────────
+# ------ Bottom Bar ------------------------------------------------------------------------------------------------------------------------------------------------
 $pnlBottom = New-Object System.Windows.Forms.Panel
 $pnlBottom.Dock = "Bottom"
 $pnlBottom.Height = 72
@@ -562,11 +558,11 @@ $btnOrganize.Font = $fontBtn
 $btnOrganize.Cursor = [System.Windows.Forms.Cursors]::Hand
 $pnlBottom.Controls.Add($btnOrganize)
 
-# ── Wire Up Events ─────────────────────────────────────────────
+# ------ Wire Up Events ---------------------------------------------------------------------------------------------------------------------------------------
 $btnOrganize.Add_Click({ Invoke-OrganizeFolder })
 $btnUndo.Add_Click({ Invoke-UndoOrganization })
 
-# ── Startup & Final Layout ────────────────────────────────────
+# ------ Startup & Final Layout ------------------------------------------------------------------------------------------------------------
 # Ensure the content panel is correctly bounded between the 
 # docked header and the docked footer, preventing overlap.
 $pnlContent.BringToFront()
