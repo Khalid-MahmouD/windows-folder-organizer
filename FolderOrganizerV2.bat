@@ -1,3 +1,342 @@
+@echo off
+setlocal
+
+set "TMPPS=%TEMP%\FolderOrganizerV2_%RANDOM%.ps1"
+
+powershell -ExecutionPolicy Bypass -Command ^
+  "$content = Get-Content '%~f0' -Raw; $start = $content.IndexOf('##PSSTART##') + 11; $ps = $content.Substring($start).TrimStart([char]13,[char]10); [System.IO.File]::WriteAllText('%TMPPS%', $ps, [System.Text.Encoding]::UTF8)"
+
+powershell -ExecutionPolicy Bypass -NoProfile -File "%TMPPS%"
+del "%TMPPS%" 2>nul
+exit /b
+
+##PSSTART##
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+# ── Folder map ────────────────────────────────────────────────
+$folderMap = @{
+    "Documents\PDFs"        = @(".pdf")
+    "Documents\Word"        = @(".doc",".docx")
+    "Documents\Excel"       = @(".xls",".xlsx",".csv")
+    "Documents\PowerPoint"  = @(".ppt",".pptx")
+    "Documents\Text"        = @(".txt",".rtf",".md")
+    "Images"                = @(".jpg",".jpeg",".png",".gif",".bmp",".webp",".svg",".heic",".raw")
+    "Videos"                = @(".mp4",".mov",".avi",".mkv",".wmv",".flv",".m4v",".webm")
+    "Music"                 = @(".mp3",".wav",".flac",".aac",".ogg",".wma",".m4a")
+    "Installers"            = @(".exe",".msi",".msix",".appx",".dmg",".pkg",".deb",".rpm")
+    "Compressed"            = @(".zip",".rar",".7z",".tar",".gz",".bz2",".xz")
+    "Code"                  = @(".py",".js",".ts",".html",".css",".json",".xml",".sql",".sh",".bat",".ps1")
+    "Fonts"                 = @(".ttf",".otf",".woff",".woff2")
+    "Torrents"              = @(".torrent")
+}
+
+$extMap = @{}
+foreach ($folder in $folderMap.Keys) {
+    foreach ($ext in $folderMap[$folder]) { $extMap[$ext] = $folder }
+}
+
+# ── Color Palette ─────────────────────────────────────────────
+$clrBg        = [System.Drawing.Color]::FromArgb(10, 10, 15)
+$clrSurface   = [System.Drawing.Color]::FromArgb(18, 18, 26)
+$clrCard      = [System.Drawing.Color]::FromArgb(26, 26, 38)
+$clrBorder    = [System.Drawing.Color]::FromArgb(45, 45, 65)
+$clrAccent    = [System.Drawing.Color]::FromArgb(99, 179, 237)
+$clrAccent2   = [System.Drawing.Color]::FromArgb(154, 117, 255)
+$clrSuccess   = [System.Drawing.Color]::FromArgb(72, 199, 142)
+$clrText      = [System.Drawing.Color]::FromArgb(230, 230, 245)
+$clrMuted     = [System.Drawing.Color]::FromArgb(120, 120, 150)
+$clrLogBg     = [System.Drawing.Color]::FromArgb(13, 13, 20)
+
+# ── Fonts ──────────────────────────────────────────────────────
+$fontTitle    = New-Object System.Drawing.Font("Segoe UI", 18, [System.Drawing.FontStyle]::Bold)
+$fontSub      = New-Object System.Drawing.Font("Segoe UI", 9)
+$fontLabel    = New-Object System.Drawing.Font("Segoe UI Semibold", 9, [System.Drawing.FontStyle]::Bold)
+$fontInput    = New-Object System.Drawing.Font("Segoe UI", 10)
+$fontBtn      = New-Object System.Drawing.Font("Segoe UI", 11, [System.Drawing.FontStyle]::Bold)
+$fontLog      = New-Object System.Drawing.Font("Cascadia Code", 8.5)
+$fontLogFall  = New-Object System.Drawing.Font("Consolas", 9)
+$fontSmall    = New-Object System.Drawing.Font("Segoe UI", 8)
+$fontCounter  = New-Object System.Drawing.Font("Segoe UI", 22, [System.Drawing.FontStyle]::Bold)
+
+# ── Functions ──────────────────────────────────────────────────
+function MakeStatBox($parent, $x, $value, $label) {
+    $pnl = New-Object System.Windows.Forms.Panel
+    $pnl.Location = New-Object System.Drawing.Point($x, 0)
+    $pnl.Size = New-Object System.Drawing.Size(158, 68)
+    $pnl.BackColor = [System.Drawing.Color]::Transparent
+    $parent.Controls.Add($pnl)
+
+    $lv = New-Object System.Windows.Forms.Label
+    $lv.Text = $value
+    $lv.Font = $fontCounter
+    $lv.ForeColor = $clrAccent
+    $lv.Location = New-Object System.Drawing.Point(0, 6)
+    $lv.Size = New-Object System.Drawing.Size(158, 34)
+    $lv.TextAlign = "MiddleCenter"
+    $lv.BackColor = [System.Drawing.Color]::Transparent
+    $pnl.Controls.Add($lv)
+
+    $ll = New-Object System.Windows.Forms.Label
+    $ll.Text = $label
+    $ll.Font = $fontSmall
+    $ll.ForeColor = $clrMuted
+    $ll.Location = New-Object System.Drawing.Point(0, 42)
+    $ll.Size = New-Object System.Drawing.Size(158, 18)
+    $ll.TextAlign = "MiddleCenter"
+    $ll.BackColor = [System.Drawing.Color]::Transparent
+    $pnl.Controls.Add($ll)
+
+    # Divider (except last)
+    if ($x -lt 474) {
+        $div = New-Object System.Windows.Forms.Panel
+        $div.Location = New-Object System.Drawing.Point(($x + 158), 14)
+        $div.Size = New-Object System.Drawing.Size(1, 40)
+        $div.BackColor = $clrBorder
+        $parent.Controls.Add($div)
+    }
+    return $lv
+}
+
+function UpdateStats($path) {
+    if (Test-Path $path) {
+        $files = Get-ChildItem -Path $path -File
+        $script:lblStatFiles.Text = $files.Count.ToString()
+        $script:lblStatMoved.Text = "0"
+        $script:lblStatSkip.Text  = "0"
+        $cats = ($files | ForEach-Object { $ext = $_.Extension.ToLower(); if ($extMap[$ext]) { $extMap[$ext] } else { "Other" } } | Sort-Object -Unique).Count
+        $script:lblStatCats.Text = $cats.ToString()
+        $form.Refresh()
+    }
+}
+
+function LogLine($msg, $color) {
+    $rtbLog.SelectionStart = $rtbLog.TextLength
+    $rtbLog.SelectionLength = 0
+    $rtbLog.SelectionColor = $color
+    $rtbLog.AppendText("$msg`n")
+    $rtbLog.ScrollToCaret()
+    $form.Refresh()
+}
+
+function Invoke-OrganizeFolder {
+    $targetPath = $txtPath.Text.Trim()
+    if ($targetPath -eq "Select or paste a folder path..." -or $targetPath -eq "") {
+        [System.Windows.Forms.MessageBox]::Show("Please select a folder first.", "No Folder Selected", "OK", "Warning")
+        return
+    }
+    if (-not (Test-Path $targetPath)) {
+        [System.Windows.Forms.MessageBox]::Show("Folder not found:`n$targetPath", "Invalid Folder", "OK", "Error")
+        return
+    }
+
+    $isPreview = $chkPreview.Checked
+    $includeSubfolders = $chkSubfolders.Checked
+
+    if (-not $isPreview) {
+        $global:undoLog = @()
+        $btnUndo.Enabled = $false
+    }
+
+    $rtbLog.Clear()
+    $btnOrganize.Enabled = $false
+    $btnOrganize.Text = "Working..."
+    $lblStatus.Text = "Scanning folder..."
+    $form.Refresh()
+
+    $getArgs = @{ Path = $targetPath; File = $true }
+    if ($includeSubfolders) { $getArgs["Recurse"] = $true }
+
+    $files = Get-ChildItem @getArgs | Where-Object { $_.Name -notmatch "FolderOrganizer" }
+    $total = $files.Count
+    $moved = 0
+    $skipped = 0
+    $catsUsed = @{}
+    $i = 0
+
+    if ($total -eq 0) {
+        LogLine "  No files found in this folder." ([System.Drawing.Color]::FromArgb(251, 191, 36))
+        $lblStatus.Text = "No files found."
+    } else {
+        $pbProgress.Maximum = $total
+        $modeTag = if ($isPreview) { "[PREVIEW] " } else { "" }
+        LogLine "${modeTag}Organizing: $targetPath" $clrAccent
+        LogLine ("─" * 60) $clrBorder
+        LogLine "" $clrText
+
+        foreach ($file in $files) {
+            $i++
+            $pbProgress.Value = $i
+            $lblStatus.Text = "Processing $i of $total..."
+            $form.Refresh()
+
+            $ext = $file.Extension.ToLower()
+            $target = $extMap[$ext]
+            if (-not $target) { $target = "Other" }
+            $catsUsed[$target] = $true
+
+            $destDir = Join-Path $targetPath $target
+
+            if (-not $isPreview) {
+                if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
+                $destFile = Join-Path $destDir $file.Name
+                if (Test-Path $destFile) {
+                    $base = [System.IO.Path]::GetFileNameWithoutExtension($file.Name)
+                    $extPart = $file.Extension
+                    $n = 1
+                    do { $destFile = Join-Path $destDir ($base + "_$n" + $extPart); $n++ } while (Test-Path $destFile)
+                }
+                $global:undoLog += @{ Source = $file.FullName; Target = $destFile }
+                Move-Item -Path $file.FullName -Destination $destFile
+            }
+
+            LogLine "  $($file.Name)" $clrText
+            $rtbLog.SelectionStart = $rtbLog.TextLength - ($file.Name.Length + 3)
+            $rtbLog.SelectionLength = 0
+            LogLine "    -> $target" $clrSuccess
+            $moved++
+        }
+
+        $script:lblStatMoved.Text = $moved.ToString()
+        $script:lblStatSkip.Text  = $skipped.ToString()
+        $script:lblStatCats.Text  = $catsUsed.Count.ToString()
+
+        LogLine "" $clrText
+        LogLine ("─" * 60) $clrBorder
+        $doneMsg = if ($isPreview) { "Preview complete. $moved file(s) would be moved." } else { "Done! $moved file(s) organized." }
+        LogLine "  $doneMsg" $clrSuccess
+        $lblStatus.Text = $doneMsg
+        
+        if (-not $isPreview -and $moved -gt 0) {
+            $btnUndo.Enabled = $true
+        }
+    }
+
+    $btnOrganize.Enabled = $true
+    $btnOrganize.Text = "Organize Now"
+    $pbProgress.Value = 0
+}
+
+function Invoke-UndoOrganization {
+    $btnUndo.Enabled = $false
+    $btnOrganize.Enabled = $false
+    
+    $rtbLog.Clear()
+    LogLine "Undoing last organize operation..." $clrAccent
+    LogLine ("─" * 60) $clrBorder
+    LogLine "" $clrText
+    
+    $lblStatus.Text = "Undoing moves..."
+    $totalUndo = $global:undoLog.Count
+    $pbProgress.Maximum = $totalUndo
+    $i = 0
+    $restored = 0
+    
+    # Iterate backwards so renamed _1, _2 collisions are handled in LIFO order
+    for ($idx = $totalUndo - 1; $idx -ge 0; $idx--) {
+        $item = $global:undoLog[$idx]
+        $i++
+        $pbProgress.Value = $i
+        $form.Refresh()
+        
+        $srcFile = $item.Target
+        $originalPath = $item.Source
+        
+        $fileName = [System.IO.Path]::GetFileName($srcFile)
+        
+        if (-not (Test-Path $srcFile)) {
+            LogLine "  $fileName -> Skipped (missing)" [System.Drawing.Color]::FromArgb(251, 191, 36)
+            continue
+        }
+        
+        # Ensure the original directory still exists
+        $originalDir = [System.IO.Path]::GetDirectoryName($originalPath)
+        if (-not (Test-Path $originalDir)) { New-Item -ItemType Directory -Path $originalDir -Force | Out-Null }
+        
+        # Safety collision check (user placed a new file with same name there)
+        $restoreTo = $originalPath
+        if (Test-Path $restoreTo) {
+            $base = [System.IO.Path]::GetFileNameWithoutExtension($originalPath)
+            $extPart = [System.IO.Path]::GetExtension($originalPath)
+            $n = 1
+            do { $restoreTo = Join-Path $originalDir ($base + "_$n" + $extPart); $n++ } while (Test-Path $restoreTo)
+            LogLine "  $fileName -> Collision. Restoring as $([System.IO.Path]::GetFileName($restoreTo))" [System.Drawing.Color]::FromArgb(251, 191, 36)
+        }
+        
+        Move-Item -Path $srcFile -Destination $restoreTo
+        LogLine "  $fileName -> Restored" $clrSuccess
+        $restored++
+    }
+    
+    $global:undoLog = @()
+    
+    LogLine "" $clrText
+    LogLine ("─" * 60) $clrBorder
+    LogLine "  Undo complete. $restored file(s) restored." $clrSuccess
+    $lblStatus.Text = "Undo complete. $restored file(s) restored."
+    
+    # Update UI stats back to '0' since everything is undone, 
+    # but we trigger a rescan to be accurate to the directory state.
+    UpdateStats $txtPath.Text.Trim()
+    
+    $pbProgress.Value = 0
+    $btnOrganize.Enabled = $true
+}
+
+
+# ── Main Form ──────────────────────────────────────────────────
+$form = New-Object System.Windows.Forms.Form
+$form.Text = "Folder Organizer"
+$form.Size = New-Object System.Drawing.Size(680, 700)
+$form.MinimumSize = New-Object System.Drawing.Size(680, 700)
+$form.StartPosition = "CenterScreen"
+$form.BackColor = $clrBg
+$form.FormBorderStyle = "Sizable"
+$form.MaximizeBox = $true
+$form.Font = $fontInput
+$form.Icon = [System.Drawing.SystemIcons]::Application
+
+# ── Header Panel ───────────────────────────────────────────────
+$pnlHeader = New-Object System.Windows.Forms.Panel
+$pnlHeader.Dock = "Top"
+$pnlHeader.Height = 80
+$pnlHeader.BackColor = $clrSurface
+$form.Controls.Add($pnlHeader)
+
+# Accent bar at top of header
+$pnlAccentBar = New-Object System.Windows.Forms.Panel
+$pnlAccentBar.Dock = "Top"
+$pnlAccentBar.Height = 3
+$pnlAccentBar.BackColor = $clrAccent
+$pnlHeader.Controls.Add($pnlAccentBar)
+
+$lblTitle = New-Object System.Windows.Forms.Label
+$lblTitle.Text = "Folder Organizer"
+$lblTitle.Font = $fontTitle
+$lblTitle.ForeColor = $clrText
+$lblTitle.Location = New-Object System.Drawing.Point(24, 14)
+$lblTitle.Size = New-Object System.Drawing.Size(380, 36)
+$lblTitle.BackColor = [System.Drawing.Color]::Transparent
+$pnlHeader.Controls.Add($lblTitle)
+
+$lblSub = New-Object System.Windows.Forms.Label
+$lblSub.Text = "Intelligently sort files into categorized subfolders"
+$lblSub.Font = $fontSub
+$lblSub.ForeColor = $clrMuted
+$lblSub.Location = New-Object System.Drawing.Point(26, 50)
+$lblSub.Size = New-Object System.Drawing.Size(500, 18)
+$lblSub.BackColor = [System.Drawing.Color]::Transparent
+$pnlHeader.Controls.Add($lblSub)
+
+# Version badge
+$lblVersion = New-Object System.Windows.Forms.Label
+$lblVersion.Text = "v2.0"
+$lblVersion.Font = $fontSmall
+$lblVersion.ForeColor = $clrAccent
+$lblVersion.Location = New-Object System.Drawing.Point(610, 28)
+$lblVersion.Size = New-Object System.Drawing.Size(40, 16)
+$lblVersion.BackColor = [System.Drawing.Color]::Transparent
+$pnlHeader.Controls.Add($lblVersion)
 
 # ── Content Panel (scrollable area) ───────────────────────────
 $pnlContent = New-Object System.Windows.Forms.Panel
@@ -136,44 +475,6 @@ $pnlStats.Anchor = "Top, Left, Right"
 $pnlStats.BackColor = $clrCard
 $pnlContent.Controls.Add($pnlStats)
 
-function MakeStatBox($parent, $x, $value, $label) {
-    $pnl = New-Object System.Windows.Forms.Panel
-    $pnl.Location = New-Object System.Drawing.Point($x, 0)
-    $pnl.Size = New-Object System.Drawing.Size(158, 68)
-    $pnl.BackColor = [System.Drawing.Color]::Transparent
-    $parent.Controls.Add($pnl)
-
-    $lv = New-Object System.Windows.Forms.Label
-    $lv.Text = $value
-    $lv.Font = $fontCounter
-    $lv.ForeColor = $clrAccent
-    $lv.Location = New-Object System.Drawing.Point(0, 6)
-    $lv.Size = New-Object System.Drawing.Size(158, 34)
-    $lv.TextAlign = "MiddleCenter"
-    $lv.BackColor = [System.Drawing.Color]::Transparent
-    $pnl.Controls.Add($lv)
-
-    $ll = New-Object System.Windows.Forms.Label
-    $ll.Text = $label
-    $ll.Font = $fontSmall
-    $ll.ForeColor = $clrMuted
-    $ll.Location = New-Object System.Drawing.Point(0, 42)
-    $ll.Size = New-Object System.Drawing.Size(158, 18)
-    $ll.TextAlign = "MiddleCenter"
-    $ll.BackColor = [System.Drawing.Color]::Transparent
-    $pnl.Controls.Add($ll)
-
-    # Divider (except last)
-    if ($x -lt 474) {
-        $div = New-Object System.Windows.Forms.Panel
-        $div.Location = New-Object System.Drawing.Point(($x + 158), 14)
-        $div.Size = New-Object System.Drawing.Size(1, 40)
-        $div.BackColor = $clrBorder
-        $parent.Controls.Add($div)
-    }
-    return $lv
-}
-
 $script:lblStatFiles  = MakeStatBox $pnlStats 0   "0" "Total Files"
 $script:lblStatMoved  = MakeStatBox $pnlStats 159 "0" "Moved"
 $script:lblStatSkip   = MakeStatBox $pnlStats 318 "0" "Skipped"
@@ -183,18 +484,6 @@ $script:lblStatFiles.ForeColor  = $clrText
 $script:lblStatMoved.ForeColor  = $clrSuccess
 $script:lblStatSkip.ForeColor   = [System.Drawing.Color]::FromArgb(251, 191, 36)
 $script:lblStatCats.ForeColor   = $clrAccent2
-
-function UpdateStats($path) {
-    if (Test-Path $path) {
-        $files = Get-ChildItem -Path $path -File
-        $script:lblStatFiles.Text = $files.Count.ToString()
-        $script:lblStatMoved.Text = "0"
-        $script:lblStatSkip.Text  = "0"
-        $cats = ($files | ForEach-Object { $ext = $_.Extension.ToLower(); if ($extMap[$ext]) { $extMap[$ext] } else { "Other" } } | Sort-Object -Unique).Count
-        $script:lblStatCats.Text = $cats.ToString()
-        $form.Refresh()
-    }
-}
 
 # ── Log Section ───────────────────────────────────────────────
 $lblLogHeader = New-Object System.Windows.Forms.Label
@@ -217,15 +506,6 @@ $rtbLog.ReadOnly = $true
 $rtbLog.ScrollBars = "None"
 $rtbLog.Anchor = "Top, Bottom, Left, Right"
 $pnlContent.Controls.Add($rtbLog)
-
-function LogLine($msg, $color) {
-    $rtbLog.SelectionStart = $rtbLog.TextLength
-    $rtbLog.SelectionLength = 0
-    $rtbLog.SelectionColor = $color
-    $rtbLog.AppendText("$msg`n")
-    $rtbLog.ScrollToCaret()
-    $form.Refresh()
-}
 
 # ── Bottom Bar ────────────────────────────────────────────────
 $pnlBottom = New-Object System.Windows.Forms.Panel
@@ -282,171 +562,13 @@ $btnOrganize.Font = $fontBtn
 $btnOrganize.Cursor = [System.Windows.Forms.Cursors]::Hand
 $pnlBottom.Controls.Add($btnOrganize)
 
-# ── Organize Logic ─────────────────────────────────────────────
-$btnOrganize.Add_Click({
-    $targetPath = $txtPath.Text.Trim()
-    if ($targetPath -eq "Select or paste a folder path..." -or $targetPath -eq "") {
-        [System.Windows.Forms.MessageBox]::Show("Please select a folder first.", "No Folder Selected", "OK", "Warning")
-        return
-    }
-    if (-not (Test-Path $targetPath)) {
-        [System.Windows.Forms.MessageBox]::Show("Folder not found:`n$targetPath", "Invalid Folder", "OK", "Error")
-        return
-    }
+# ── Wire Up Events ─────────────────────────────────────────────
+$btnOrganize.Add_Click({ Invoke-OrganizeFolder })
+$btnUndo.Add_Click({ Invoke-UndoOrganization })
 
-    $isPreview = $chkPreview.Checked
-    $includeSubfolders = $chkSubfolders.Checked
-
-    if (-not $isPreview) {
-        $global:undoLog = @()
-        $btnUndo.Enabled = $false
-    }
-
-    $rtbLog.Clear()
-    $btnOrganize.Enabled = $false
-    $btnOrganize.Text = "Working..."
-    $lblStatus.Text = "Scanning folder..."
-    $form.Refresh()
-
-    $getArgs = @{ Path = $targetPath; File = $true }
-    if ($includeSubfolders) { $getArgs["Recurse"] = $true }
-
-    $files = Get-ChildItem @getArgs | Where-Object { $_.Name -notmatch "FolderOrganizer" }
-    $total = $files.Count
-    $moved = 0
-    $skipped = 0
-    $catsUsed = @{}
-    $i = 0
-
-    if ($total -eq 0) {
-        LogLine "  No files found in this folder." ([System.Drawing.Color]::FromArgb(251, 191, 36))
-        $lblStatus.Text = "No files found."
-    } else {
-        $pbProgress.Maximum = $total
-        $modeTag = if ($isPreview) { "[PREVIEW] " } else { "" }
-        LogLine "${modeTag}Organizing: $targetPath" $clrAccent
-        LogLine ("─" * 60) $clrBorder
-        LogLine "" $clrText
-
-        foreach ($file in $files) {
-            $i++
-            $pbProgress.Value = $i
-            $lblStatus.Text = "Processing $i of $total..."
-            $form.Refresh()
-
-            $ext = $file.Extension.ToLower()
-            $target = $extMap[$ext]
-            if (-not $target) { $target = "Other" }
-            $catsUsed[$target] = $true
-
-            $destDir = Join-Path $targetPath $target
-
-            if (-not $isPreview) {
-                if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
-                $destFile = Join-Path $destDir $file.Name
-                if (Test-Path $destFile) {
-                    $base = [System.IO.Path]::GetFileNameWithoutExtension($file.Name)
-                    $extPart = $file.Extension
-                    $n = 1
-                    do { $destFile = Join-Path $destDir ($base + "_$n" + $extPart); $n++ } while (Test-Path $destFile)
-                }
-                $global:undoLog += @{ Source = $file.FullName; Target = $destFile }
-                Move-Item -Path $file.FullName -Destination $destFile
-            }
-
-            LogLine "  $($file.Name)" $clrText
-            $rtbLog.SelectionStart = $rtbLog.TextLength - ($file.Name.Length + 3)
-            $rtbLog.SelectionLength = 0
-            LogLine "    -> $target" $clrSuccess
-            $moved++
-        }
-
-        $script:lblStatMoved.Text = $moved.ToString()
-        $script:lblStatSkip.Text  = $skipped.ToString()
-        $script:lblStatCats.Text  = $catsUsed.Count.ToString()
-
-        LogLine "" $clrText
-        LogLine ("─" * 60) $clrBorder
-        $doneMsg = if ($isPreview) { "Preview complete. $moved file(s) would be moved." } else { "Done! $moved file(s) organized." }
-        LogLine "  $doneMsg" $clrSuccess
-        $lblStatus.Text = $doneMsg
-        
-        if (-not $isPreview -and $moved -gt 0) {
-            $btnUndo.Enabled = $true
-        }
-    }
-
-    $btnOrganize.Enabled = $true
-    $btnOrganize.Text = "Organize Now"
-    $pbProgress.Value = 0
-})
-
-# ── Undo Logic ────────────────────────────────────────────────
-$btnUndo.Add_Click({
-    $btnUndo.Enabled = $false
-    $btnOrganize.Enabled = $false
-    
-    $rtbLog.Clear()
-    LogLine "Undoing last organize operation..." $clrAccent
-    LogLine ("─" * 60) $clrBorder
-    LogLine "" $clrText
-    
-    $lblStatus.Text = "Undoing moves..."
-    $totalUndo = $global:undoLog.Count
-    $pbProgress.Maximum = $totalUndo
-    $i = 0
-    $restored = 0
-    
-    # Iterate backwards so renamed _1, _2 collisions are handled in LIFO order
-    for ($idx = $totalUndo - 1; $idx -ge 0; $idx--) {
-        $item = $global:undoLog[$idx]
-        $i++
-        $pbProgress.Value = $i
-        $form.Refresh()
-        
-        $srcFile = $item.Target
-        $originalPath = $item.Source
-        
-        $fileName = [System.IO.Path]::GetFileName($srcFile)
-        
-        if (-not (Test-Path $srcFile)) {
-            LogLine "  $fileName -> Skipped (missing)" [System.Drawing.Color]::FromArgb(251, 191, 36)
-            continue
-        }
-        
-        # Ensure the original directory still exists
-        $originalDir = [System.IO.Path]::GetDirectoryName($originalPath)
-        if (-not (Test-Path $originalDir)) { New-Item -ItemType Directory -Path $originalDir -Force | Out-Null }
-        
-        # Safety collision check (user placed a new file with same name there)
-        $restoreTo = $originalPath
-        if (Test-Path $restoreTo) {
-            $base = [System.IO.Path]::GetFileNameWithoutExtension($originalPath)
-            $extPart = [System.IO.Path]::GetExtension($originalPath)
-            $n = 1
-            do { $restoreTo = Join-Path $originalDir ($base + "_$n" + $extPart); $n++ } while (Test-Path $restoreTo)
-            LogLine "  $fileName -> Collision. Restoring as $([System.IO.Path]::GetFileName($restoreTo))" [System.Drawing.Color]::FromArgb(251, 191, 36)
-        }
-        
-        Move-Item -Path $srcFile -Destination $restoreTo
-        LogLine "  $fileName -> Restored" $clrSuccess
-        $restored++
-    }
-    
-    $global:undoLog = @()
-    
-    LogLine "" $clrText
-    LogLine ("─" * 60) $clrBorder
-    LogLine "  Undo complete. $restored file(s) restored." $clrSuccess
-    $lblStatus.Text = "Undo complete. $restored file(s) restored."
-    
-    # Update UI stats back to '0' since everything is undone, 
-    # but we trigger a rescan to be accurate to the directory state.
-    UpdateStats $txtPath.Text.Trim()
-    
-    $pbProgress.Value = 0
-    $btnOrganize.Enabled = $true
-})
-
+# ── Startup & Final Layout ────────────────────────────────────
+# Ensure the content panel is correctly bounded between the 
+# docked header and the docked footer, preventing overlap.
 $pnlContent.BringToFront()
+
 [void]$form.ShowDialog()
