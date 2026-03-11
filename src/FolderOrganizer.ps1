@@ -1,14 +1,27 @@
-<# :
-@echo off
-setlocal
-set "TMPPS=%TEMP%\FolderOrganizerV2_%RANDOM%.ps1"
-powershell -ExecutionPolicy Bypass -NoProfile -Command "Get-Content '%~f0' | Select-Object -Skip 8 | Out-File -Encoding UTF8 '%TMPPS%'"
-powershell -ExecutionPolicy Bypass -NoProfile -WindowStyle Hidden -File "%TMPPS%"
-del "%TMPPS%" 2>nul
-exit /b
-#>
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class ScrollHelper {
+    [DllImport("user32.dll")]
+    private static extern bool GetScrollInfo(IntPtr hWnd, int nBar, ref SCROLLINFO si);
+    [DllImport("user32.dll", EntryPoint = "SendMessage")]
+    private static extern IntPtr SendMsgPt(IntPtr hWnd, uint msg, IntPtr wp, ref POINT lp);
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SCROLLINFO { public uint cbSize, fMask; public int nMin, nMax; public uint nPage; public int nPos, nTrackPos; }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT { public int X, Y; }
+    public static SCROLLINFO GetVertScrollInfo(IntPtr h) {
+        var si = new SCROLLINFO(); si.cbSize = (uint)Marshal.SizeOf(typeof(SCROLLINFO)); si.fMask = 0x17;
+        GetScrollInfo(h, 1, ref si); return si;
+    }
+    public static void SetScrollY(IntPtr h, int y) {
+        var pt = new POINT { X = 0, Y = y };
+        SendMsgPt(h, 0x04DE, IntPtr.Zero, ref pt);
+    }
+}
+"@
 
 # ------ Folder map ------------------------------------------------------------------------------------------------------------------------------------------------
 $folderMap = @{
@@ -112,7 +125,29 @@ function LogLine($msg, $color) {
     $rtbLog.SelectionColor = $color
     $rtbLog.AppendText("$msg`n")
     $rtbLog.ScrollToCaret()
+    Update-ScrollThumb
     $form.Refresh()
+}
+
+function Update-ScrollThumb {
+    if (-not $rtbLog.IsHandleCreated) { return }
+    $si = [ScrollHelper]::GetVertScrollInfo($rtbLog.Handle)
+    $totalRange = $si.nMax + 1
+    $pageSize = [int]$si.nPage
+    if ($totalRange -le $pageSize -or $totalRange -eq 0) {
+        $pnlScrollThumb.Visible = $false
+        return
+    }
+    $pnlScrollThumb.Visible = $true
+    $trackH = $pnlScrollTrack.Height
+    $thumbH = [Math]::Max(24, [int]($trackH * $pageSize / $totalRange))
+    $scrollable = $totalRange - $pageSize
+    $ratio = if ($scrollable -gt 0) { $si.nPos / $scrollable } else { 0 }
+    $maxY = $trackH - $thumbH
+    $thumbY = [int]($ratio * $maxY)
+    $thumbY = [Math]::Max(0, [Math]::Min($maxY, $thumbY))
+    $pnlScrollThumb.Size = New-Object System.Drawing.Size(4, $thumbH)
+    $pnlScrollThumb.Location = New-Object System.Drawing.Point(1, $thumbY)
 }
 
 function Invoke-OrganizeFolder {
@@ -491,17 +526,121 @@ $lblLogHeader.Size = New-Object System.Drawing.Size(200, 16)
 $lblLogHeader.BackColor = [System.Drawing.Color]::Transparent
 $pnlContent.Controls.Add($lblLogHeader)
 
+# Log container clips the native scrollbar off-screen
+$pnlLogContainer = New-Object System.Windows.Forms.Panel
+$pnlLogContainer.Location = New-Object System.Drawing.Point(24, 286)
+$pnlLogContainer.Size = New-Object System.Drawing.Size(600, 350)
+$pnlLogContainer.Anchor = "Top, Bottom, Left, Right"
+$pnlLogContainer.BackColor = $clrLogBg
+$pnlContent.Controls.Add($pnlLogContainer)
+
 $rtbLog = New-Object System.Windows.Forms.RichTextBox
-$rtbLog.Location = New-Object System.Drawing.Point(24, 286)
-$rtbLog.Size = New-Object System.Drawing.Size(632, 199)
+$rtbLog.Location = New-Object System.Drawing.Point(0, 0)
+$rtbLog.Size = New-Object System.Drawing.Size(646, 400)
 $rtbLog.BackColor = $clrLogBg
 $rtbLog.ForeColor = $clrText
 $rtbLog.Font = $fontLogFall
 $rtbLog.BorderStyle = "None"
 $rtbLog.ReadOnly = $true
-$rtbLog.ScrollBars = "None"
-$rtbLog.Anchor = "Top, Bottom, Left, Right"
-$pnlContent.Controls.Add($rtbLog)
+$rtbLog.ScrollBars = "Vertical"
+$pnlLogContainer.Controls.Add($rtbLog)
+
+$pnlLogContainer.Add_Resize({
+    $rtbLog.Size = New-Object System.Drawing.Size(($pnlLogContainer.Width + 20), $pnlLogContainer.Height)
+})
+
+# Custom scrollbar track
+$pnlScrollTrack = New-Object System.Windows.Forms.Panel
+$pnlScrollTrack.Location = New-Object System.Drawing.Point(650, 286)
+$pnlScrollTrack.Size = New-Object System.Drawing.Size(6, 400)
+$pnlScrollTrack.BackColor = $clrLogBg
+$pnlScrollTrack.Anchor = "Top, Bottom, Right"
+$pnlContent.Controls.Add($pnlScrollTrack)
+
+# Scrollbar thumb
+$pnlScrollThumb = New-Object System.Windows.Forms.Panel
+$pnlScrollThumb.Location = New-Object System.Drawing.Point(1, 0)
+$pnlScrollThumb.Size = New-Object System.Drawing.Size(4, 40)
+$pnlScrollThumb.BackColor = [System.Drawing.Color]::FromArgb(50, 50, 75)
+$pnlScrollThumb.Visible = $false
+$pnlScrollThumb.Cursor = [System.Windows.Forms.Cursors]::Hand
+$pnlScrollTrack.Controls.Add($pnlScrollThumb)
+
+# Scrollbar interaction
+$script:scrollDragging = $false
+$script:scrollDragScreenY = 0
+$script:scrollDragThumbY = 0
+
+$rtbLog.Add_VScroll({
+    if (-not $script:scrollDragging) { Update-ScrollThumb }
+})
+
+$pnlScrollThumb.Add_MouseDown({
+    param($s, $e)
+    if ($e.Button -eq 'Left') {
+        $script:scrollDragging = $true
+        $script:scrollDragScreenY = [System.Windows.Forms.Cursor]::Position.Y
+        $script:scrollDragThumbY = $pnlScrollThumb.Top
+        $pnlScrollThumb.BackColor = [System.Drawing.Color]::FromArgb(90, 90, 130)
+    }
+})
+
+$pnlScrollThumb.Add_MouseMove({
+    param($s, $e)
+    if ($script:scrollDragging) {
+        $screenY = [System.Windows.Forms.Cursor]::Position.Y
+        $delta = $screenY - $script:scrollDragScreenY
+        $newY = $script:scrollDragThumbY + $delta
+        $maxY = $pnlScrollTrack.Height - $pnlScrollThumb.Height
+        $newY = [Math]::Max(0, [Math]::Min($maxY, $newY))
+        if ($maxY -gt 0) {
+            $ratio = $newY / $maxY
+            $si = [ScrollHelper]::GetVertScrollInfo($rtbLog.Handle)
+            $scrollable = $si.nMax + 1 - [int]$si.nPage
+            if ($scrollable -gt 0) {
+                $newPos = [int]($ratio * $scrollable)
+                [ScrollHelper]::SetScrollY($rtbLog.Handle, $newPos)
+                Update-ScrollThumb
+            }
+        }
+    }
+})
+
+$pnlScrollThumb.Add_MouseUp({
+    $script:scrollDragging = $false
+    $pnlScrollThumb.BackColor = [System.Drawing.Color]::FromArgb(50, 50, 75)
+})
+
+$pnlScrollThumb.Add_MouseEnter({
+    if (-not $script:scrollDragging) {
+        $pnlScrollThumb.BackColor = [System.Drawing.Color]::FromArgb(70, 70, 105)
+    }
+})
+
+$pnlScrollThumb.Add_MouseLeave({
+    if (-not $script:scrollDragging) {
+        $pnlScrollThumb.BackColor = [System.Drawing.Color]::FromArgb(50, 50, 75)
+    }
+})
+
+$pnlScrollTrack.Add_MouseDown({
+    param($s, $e)
+    if ($e.Button -eq 'Left') {
+        $thumbH = $pnlScrollThumb.Height
+        $trackH = $pnlScrollTrack.Height
+        $maxY = $trackH - $thumbH
+        if ($maxY -le 0) { return }
+        $targetY = [Math]::Max(0, [Math]::Min($maxY, ($e.Y - [int]($thumbH / 2))))
+        $ratio = $targetY / $maxY
+        $si = [ScrollHelper]::GetVertScrollInfo($rtbLog.Handle)
+        $scrollable = $si.nMax + 1 - [int]$si.nPage
+        if ($scrollable -gt 0) {
+            $newPos = [int]($ratio * $scrollable)
+            [ScrollHelper]::SetScrollY($rtbLog.Handle, $newPos)
+            Update-ScrollThumb
+        }
+    }
+})
 
 # ------ Bottom Bar ------------------------------------------------------------------------------------------------------------------------------------------------
 $pnlBottom = New-Object System.Windows.Forms.Panel

@@ -1,3 +1,20 @@
+# Build outputs
+bin/
+obj/
+*.exe
+
+# IDE / Editor
+.vscode/
+.vs/
+.idea/
+
+# Temp and Debug
 temp*.bat
-dump.txt
 *.patch
+dump.txt
+*.log
+debug.ps1
+testout.ps1
+
+# PowerShell Core / Windows
+*Zone.Identifier

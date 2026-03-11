@@ -13,7 +13,7 @@ A lightweight Windows GUI tool that automatically sorts files in any folder into
 - 📊 **Live activity log** showing every file moved
 - 📈 **Progress bar** while organizing
 - 🔁 **Duplicate handling** — appends `_1`, `_2`, etc. automatically
-- ⚡ **No installation needed** — runs on any Windows PC with PowerShell
+- ⚡ **Standalone Executable** — runs on any Windows PC.
 
 ---
 
@@ -40,20 +40,34 @@ A lightweight Windows GUI tool that automatically sorts files in any folder into
 
 ## 🚀 How to Use
 
-1. **Download** `FolderOrganizer.bat`
-2. **Double-click** it — a GUI window will open
-3. **Type or browse** to any folder you want to organize
-4. Click **"Organize Folder"**
+1. **Download** `FolderOrganizer.exe` from the Releases page.
+2. **Double-click** it — a GUI window will open.
+3. **Type or browse** to any folder you want to organize.
+4. Click **"Organize Folder"**.
 5. Watch the activity log as files get sorted!
+
+---
+
+## 🛠️ Building from Source
+
+To compile the PowerShell script into a standalone `.exe`:
+
+1. Clone the repository.
+2. Open a PowerShell console.
+3. Run the build script:
+   ```powershell
+   .\build.ps1
+   ```
+   *Note: This script will attempt to install the `ps2exe` module if it is not already present on your system.*
+
+The compiled executable will be placed in the `bin/` folder.
 
 ---
 
 ## 💻 Requirements
 
 - Windows 10 or 11
-- PowerShell (pre-installed on all modern Windows systems)
-
-No Python, no Node.js, no dependencies — just Windows.
+- (For Building) PowerShell 5.1+
 
 ---
 
@@ -62,12 +76,6 @@ No Python, no Node.js, no dependencies — just Windows.
 - Files are **moved**, not copied — originals will no longer be in the root folder
 - The tool **skips itself** so it won't accidentally move its own file
 - Subfolders inside the target folder are **not touched** — only root-level files are organized
-
----
-
-## 🛠️ How It Works
-
-`FolderOrganizer.bat` is a self-contained batch file that extracts an embedded PowerShell GUI script at runtime, runs it, then cleans up the temp file automatically. Nothing is left behind on your system.
 
 ---
 
